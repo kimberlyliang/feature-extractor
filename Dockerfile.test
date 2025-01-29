@@ -1,0 +1,5 @@
+FROM template:0.0.3
+
+COPY tests/ /tests
+
+CMD ["pytest", "/tests"]
