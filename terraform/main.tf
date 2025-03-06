@@ -24,7 +24,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "template_project_data_expirati
   bucket = aws_s3_bucket.template_project_data.id
 
   rule {
-    id  	= "compliance-retention-policy"
+    id      = "compliance-retention-policy"
     status  = "Enabled"
 
     expiration {
