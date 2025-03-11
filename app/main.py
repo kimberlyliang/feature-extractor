@@ -1,6 +1,16 @@
 import csv
 import glob
+import logging
 import os
+import sys
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+
+logger = logging.getLogger()
 
 def multiply_by_two(x):
     return int(x) * 2
@@ -24,6 +34,7 @@ def write_csv(output_file, rows):
 def multiply_csvs(input_directory, output_directory):
     csv_files = glob.glob(os.path.join(input_directory, '*.csv'), recursive=False)
     for input_file in csv_files:
+        logger.info("Multiplying file: %s", input_file)
         filename = os.path.basename(input_file)
         output_filename = 'multiplied_' + filename
         output_file = os.path.join(output_directory, output_filename)
@@ -32,9 +43,13 @@ def multiply_csvs(input_directory, output_directory):
         write_csv(output_file, rows)
 
 if __name__ == "__main__":
+    logger.info("Initiating Multiplication")
+
     base_directory = os.path.dirname(os.path.dirname(__file__))
 
     input_directory = os.getenv('INPUT_DIR', os.path.join(base_directory, 'data/input/'))
     output_directory = os.getenv('OUTPUT_DIR', os.path.join(base_directory, 'data/output/'))
 
     multiply_csvs(input_directory, output_directory)
+
+    logger.info("Successfully Completed Multiplication")

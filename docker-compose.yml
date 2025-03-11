@@ -1,6 +1,7 @@
 services:
   app:
     image: template:0.0.3
+    platform: linux/amd64
     build:
       context: .
       dockerfile: Dockerfile
