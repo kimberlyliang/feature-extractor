@@ -47,10 +47,6 @@ resource "aws_ecr_repository" "template_project_ecr_repository" {
   }
 }
 
-resource "aws_ecs_cluster" "template_project_ecs_cluster" {
-  name = "bmin5100-example-cluster"
-}
-
 resource "aws_iam_role" "ecs_task_execution_role" {
   name = "ECSTaskExecutionRole"
 

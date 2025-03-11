@@ -9,11 +9,3 @@ output "template_project_ecs_task_definition_arn" {
 output "template_project_ecs_task_definition_id" {
   value = aws_ecs_task_definition.template_project_task_definition.id
 }
-
-output "template_project_ecs_cluster_arn" {
-  value = aws_ecs_cluster.template_project_ecs_cluster.arn
-}
-
-output "template_project_ecs_cluster_id" {
-  value = aws_ecs_cluster.template_project_ecs_cluster.id
-}
