@@ -163,7 +163,10 @@ resource "aws_ecs_task_definition" "template_project_task_definition" {
       essential = true
 
       environment = [
-        { name = "S3_DATA_BUCKET", value = "${aws_s3_bucket.template_project_data.id}" }
+        { name = "S3_BUCKET", value = "${aws_s3_bucket.template_project_data.id}" },
+        { name = "INPUT_DIR", value = "/data/input" },
+        { name = "OUTPUT_DIR", value = "/data/output" },
+        { name = "ENVIRONMENT", value = "ECS" }
       ]
 
       logConfiguration = {

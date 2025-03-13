@@ -8,6 +8,7 @@ services:
     environment:
       - INPUT_DIR=/data/input
       - OUTPUT_DIR=/data/output
+      - ENVIRONMENT=LOCAL
     volumes:
       - ./data/input:/data/input:ro
       - ./data/output:/data/output
