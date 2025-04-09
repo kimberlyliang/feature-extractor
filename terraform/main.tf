@@ -33,6 +33,18 @@ resource "aws_s3_bucket_lifecycle_configuration" "template_project_data_expirati
   }
 }
 
+resource "aws_s3_bucket_cors_configuration" "template_project_data_cors" {
+  bucket = aws_s3_bucket.template_project_data.id
+
+  cors_rule {
+    allowed_headers = ["*"]
+    allowed_methods = ["GET", "POST", "PUT", "HEAD"]
+    allowed_origins = ["http://localhost:3000", "bmin5100.com"]
+    expose_headers  = ["ETag"]
+    max_age_seconds = 3000
+  }
+}
+
 resource "aws_ecr_repository" "template_project_ecr_repository" {
   name = "bmin5100-example"
   force_delete = true
@@ -48,7 +60,7 @@ resource "aws_ecr_repository" "template_project_ecr_repository" {
 }
 
 resource "aws_iam_role" "ecs_task_execution_role" {
-  name = "ECSTaskExecutionRole"
+  name = "bmin5100-example-ECSTaskExecutionRole"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -61,13 +73,13 @@ resource "aws_iam_role" "ecs_task_execution_role" {
 }
 
 resource "aws_iam_policy_attachment" "aws_ecs_task_execution_policy_attachment" {
-  name       = "AWSECSTaskExecutionAttachment"
+  name       = "bmin5100-example-AWSECSTaskExecutionAttachment"
   roles      = [aws_iam_role.ecs_task_execution_role.name]
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
 resource "aws_iam_policy" "ecs_execution_task_policy" {
-  name        = "ECSNetworkInterfacePolicy"
+  name        = "bmin5100-example-ECSNetworkInterfacePolicy"
   description = "Allows ECS Fargate to manage ENIs and CloudWatch logs"
 
   policy = jsonencode({
@@ -93,13 +105,13 @@ resource "aws_iam_policy" "ecs_execution_task_policy" {
 }
 
 resource "aws_iam_policy_attachment" "ecs_task_execution_policy_attachment" {
-  name       = "ECSTaskExecutionAttachment"
+  name       = "bmin5100-example-ECSTaskExecutionAttachment"
   roles      = [aws_iam_role.ecs_task_execution_role.name]
   policy_arn = aws_iam_policy.ecs_execution_task_policy.arn
 }
 
 resource "aws_iam_role" "ecs_task_role" {
-  name = "ECSTaskRole"
+  name = "bmin5100-example-ECSTaskRole"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -112,7 +124,7 @@ resource "aws_iam_role" "ecs_task_role" {
 }
 
 resource "aws_iam_policy" "ecs_task_policy" {
-  name        = "ECSTaskPolicy"
+  name        = "bmin5100-example-ECSTaskPolicy"
   description = "Allows ECS task to access S3"
 
   policy = jsonencode({
@@ -131,7 +143,7 @@ resource "aws_iam_policy" "ecs_task_policy" {
 }
 
 resource "aws_iam_policy_attachment" "ecs_task_policy_attachment" {
-  name       = "ECSTaskAttachment"
+  name       = "bmin5100-example-ECSTaskAttachment"
   roles      = [aws_iam_role.ecs_task_role.name]
   policy_arn = aws_iam_policy.ecs_task_policy.arn
 }
