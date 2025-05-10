@@ -1,30 +1,36 @@
-# BMIN 5100 Template Repository
-Template repository for BMIN 5100 Projects.
+# Template Repository
 
-Contains a minimal Python project that reads a CSV from an input directory and
-outputs a CSV to an output directory, suitable for an analysis workflow on Pennsieve.
+This repository contains code for processing iEEG data and extracting various features.
 
-Use this template to create your own GitHub repository by clicking the green
-`Use this template` button towards the top-right of this page.
+## Setup
 
-### Setup
-Install the following:
-- `python3` (latest)
-- `pip` (or `pip3`, latest)
-
-Then, run the following
-```
-python3 -m venv venv
-source venv/bin/activate
-pip3 install -r requirements.txt
+1. Clone the repository:
+```bash
+git clone <your-repo-url>
+cd template
 ```
 
-### Running the application
-```
-python3 main/app.py
+2. Build and run with Docker:
+```bash
+docker-compose up --build
 ```
 
-### Testing the application
-```
-pytest
-```
+## Data Structure
+
+- Input data should be placed in `data/input/`
+- Output will be generated in `data/output/`
+
+## Features
+
+The code extracts the following features from iEEG data:
+- Catch22 features
+- FOOOF features
+- Bandpower features
+- Entropy features
+
+## Environment Variables
+
+The following environment variables can be set:
+- `INPUT_DIR`: Directory containing input data (default: /data/input)
+- `OUTPUT_DIR`: Directory for output data (default: /data/output)
+- `ENVIRONMENT`: Set to 'LOCAL' for local development
