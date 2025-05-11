@@ -18,13 +18,10 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-RUN pip install --no-cache-dir numpy scipy matplotlib mne boto3 python-dotenv
+RUN pip install -r requirements.txt
 COPY app/ /app/
 COPY .env /app/.env
 RUN mkdir -p data/input data/output
 ENV INPUT_DIR=/data/input
 ENV OUTPUT_DIR=/data/output
-ENV RUN_MODE=local
-ENV S3_BUCKET_NAME=goldblum-askeeg
-ENV SESSION_ID=""
-CMD ["python", "main.py"]
+CMD ["python", "features_univariate.py"]

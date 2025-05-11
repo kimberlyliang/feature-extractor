@@ -14,9 +14,9 @@ import time
 class UnivariateFeatures(IEEGClipProcessor):
     def __init__(self, subject_id: str):
         super().__init__()
-        self.project_root = Path(__file__).parent
+        # self.project_root = Path(__file__).parent
         self.subject_id = subject_id
-        print(f"Script's project root: {self.project_root}")
+        # print(f"Script's project root: {self.project_root}")
 
         # Get base input and output directories from environment variables
         # Default to ./data/input and ./data/output if not set (for local non-Docker runs)

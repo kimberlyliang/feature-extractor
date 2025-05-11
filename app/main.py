@@ -15,6 +15,7 @@ logging.basicConfig(
 logger = logging.getLogger()
 
 if __name__ == "__main__":
+    print("Starting main.py")
     input_dir = os.getenv("INPUT_DIR", "/data/input")
     output_dir = os.getenv("OUTPUT_DIR", "/data/output")
     os.makedirs(output_dir, exist_ok=True)
