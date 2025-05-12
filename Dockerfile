@@ -22,7 +22,7 @@ COPY requirements.txt /app/requirements.txt
 RUN pip install -r /app/requirements.txt
 COPY app/ /app/
 WORKDIR /app
-RUN mkdir -p data/input data/output
-ENV INPUT_DIR=/app/data/input
-ENV OUTPUT_DIR=/app/data/output
+RUN mkdir -p /data/input /data/output
+ENV INPUT_DIR=/data/input
+ENV OUTPUT_DIR=/data/output
 CMD ["python", "features_univariate.py"]

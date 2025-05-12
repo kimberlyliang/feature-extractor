@@ -106,9 +106,8 @@ class UnivariateFeatures(IEEGClipProcessor):
         self.ieeg_processed, self.subject_id = find_h5_file(input_dir)
         logger.info(f"Found H5 file for subject {self.subject_id} at: {self.ieeg_processed}")
         
-        # Get output directory from environment variable or default
-        output_base_dir = Path(os.environ.get('OUTPUT_DIR', 'data/output'))
-        self.output_dir = output_base_dir.joinpath('univariate_features', self.subject_id)
+        # Set output directory to be the same as the input file's directory
+        self.output_dir = self.ieeg_processed.parent
         logger.info(f"Output directory set to: {self.output_dir}")
         
         # Initialize data attributes
@@ -321,22 +320,19 @@ class UnivariateFeatures(IEEGClipProcessor):
         logger.info(f"Entropy features calculated in {time.time() - start_time:.2f} seconds")
         return entropy_series
     
-    def save_features(self, output_dir: Path) -> None:
-        """Save all calculated features to CSV files."""
-        logger.info(f"Saving features to {output_dir}")
-
-        # Create output directory if it doesn't exist
-        output_dir.mkdir(parents=True, exist_ok=True)
-
+    def save_features(self) -> None:
+        """Save all calculated features to CSV files in the same directory as the input file."""
+        logger.info(f"Saving features to {self.output_dir}")
+        
         # Calculate features
         bandpower_df = self.bandpower_features()
         entropy_series = self.entropy_features()
-
-        # Save each feature set with subject_id in the filename
-        bandpower_df.to_csv(output_dir / f"bandpower_features_{self.subject_id}.csv")
+        
+        # Save each feature set in the same directory as the input file
+        bandpower_df.to_csv(self.output_dir / "bandpower_features.csv")
         entropy_df = entropy_series.to_frame()
-        entropy_df.to_csv(output_dir / f"entropy_features_{self.subject_id}.csv")
-        logger.info(f"Saved bandpower and entropy features for subject {self.subject_id}")
+        entropy_df.to_csv(self.output_dir / "entropy_features.csv")
+        logger.info(f"Saved bandpower and entropy features in {self.output_dir}")
 
 #%%
 
@@ -357,7 +353,7 @@ if __name__ == "__main__":
         
         # Calculate and save all features
         logger.info("Starting feature calculation and saving...")
-        features_calculator.save_features(output_base_dir)
+        features_calculator.save_features()
         
         end_time = time.time()
         logger.info(f"All features calculated and saved for {features_calculator.subject_id}")
