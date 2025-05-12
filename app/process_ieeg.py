@@ -9,7 +9,7 @@ from typing import Union, List, Tuple
 import mne
 from IPython import embed
 from scipy import signal
-from process_ieeg_utils import IEEGTools
+from app.process_ieeg_utils import IEEGTools
 
 #%%
 class IEEGClipProcessor(IEEGTools):

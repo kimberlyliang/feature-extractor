@@ -2,7 +2,7 @@
 import os
 import logging
 import sys
-from features_univariate import UnivariateFeatures
+from app.features_univariate import UnivariateFeatures
 import pandas as pd
 import json
 
