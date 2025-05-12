@@ -6,163 +6,363 @@ import h5py
 from process_ieeg import IEEGClipProcessor
 from IPython import embed
 from pathlib import Path
-from features_univariate_utils import in_parallel, catch22_single_series, compute_psd_all_channels_parallel, fooof_single_series, compute_entropy_single_series
-from fooof import FOOOF
+from features_univariate_utils import in_parallel, catch22_single_series, compute_psd_all_channels_parallel, compute_entropy_single_series
+# from fooof import FOOOF
 import time
+from functools import lru_cache
+import logging
+from typing import Dict, List, Tuple, Optional
+import warnings
+import re
 
-def get_subject_ids(input_dir: Path) -> list:
-    """Get list of subject IDs from the input directory.
+# Configure logging with more detailed format
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+def find_h5_file(input_dir: Path) -> Tuple[Path, str]:
+    """Find the H5 file in the input directory and extract subject ID.
     
     Args:
-        input_dir (Path): Path to the input directory
+        input_dir: Path to input directory or file
         
     Returns:
-        list: List of subject IDs (e.g., ['sub-MNI0001', 'sub-MNI0002'])
+        Tuple of (h5_file_path, subject_id)
     """
-    # Get all directories that start with 'sub-'
-    subject_dirs = [d for d in input_dir.iterdir() if d.is_dir() and d.name.startswith('sub-')]
-    return [d.name for d in subject_dirs]
+    logger.info(f"Searching for H5 file in: {input_dir}")
+    
+    # Define possible filenames
+    possible_filenames = ['interictal_ieeg_processed.h5', 'interictal_ieeg_wake_processed.h5']
+    
+    # First check if input_dir is one of the files
+    if input_dir.is_file() and input_dir.name in possible_filenames:
+        logger.info(f"Found H5 file directly: {input_dir}")
+        h5_file = input_dir
+    else:
+        # Search recursively for any of the possible files
+        logger.info("Searching recursively for H5 files...")
+        h5_files = []
+        for filename in possible_filenames:
+            found_files = list(input_dir.rglob(filename))
+            if found_files:
+                logger.info(f"Found {len(found_files)} files matching {filename}")
+                h5_files.extend(found_files)
+        
+        logger.info(f"Total H5 files found: {len(h5_files)}")
+        
+        if not h5_files:
+            # If no files found, try searching in subdirectories
+            logger.info("No H5 files found, checking subdirectories...")
+            for subdir in input_dir.iterdir():
+                if subdir.is_dir():
+                    logger.info(f"Checking subdirectory: {subdir}")
+                    for filename in possible_filenames:
+                        found_files = list(subdir.rglob(filename))
+                        if found_files:
+                            logger.info(f"Found {len(found_files)} files matching {filename} in {subdir}")
+                            h5_files.extend(found_files)
+                            break
+                    if h5_files:
+                        break
+            
+            if not h5_files:
+                raise FileNotFoundError(f"No H5 files found in {input_dir} or its subdirectories")
+        
+        if len(h5_files) > 1:
+            logger.warning(f"Found multiple H5 files: {h5_files}")
+            logger.info("Using the first file found")
+        
+        h5_file = h5_files[0]
+        logger.info(f"Using file: {h5_file}")
+    
+    # Extract subject ID from path
+    try:
+        # Try to find sub-* pattern in the path
+        subject_match = re.search(r'sub-[A-Za-z0-9]+', str(h5_file))
+        if subject_match:
+            subject_id = subject_match.group(0)
+            logger.info(f"Extracted subject ID from path: {subject_id}")
+        else:
+            # Use parent directory name as fallback
+            subject_id = h5_file.parent.name
+            logger.info(f"No subject ID found in path, using parent directory name: {subject_id}")
+    except Exception as e:
+        logger.warning(f"Error extracting subject ID: {e}")
+        subject_id = h5_file.parent.name
+    
+    logger.info(f"Final subject ID: {subject_id}")
+    return h5_file, subject_id
 
 #%%
 class UnivariateFeatures(IEEGClipProcessor):
-    def __init__(self, subject_id: str):
+    def __init__(self, input_dir: Path, chunk_size: int = 1000):
+        logger.info(f"Initializing UnivariateFeatures with input_dir: {input_dir}")
         super().__init__()
-        # self.project_root = Path(__file__).parent
-        self.subject_id = subject_id
-        # print(f"Script's project root: {self.project_root}")
-
-        # Get base input and output directories from environment variables
-        # Default to ./data/input and ./data/output if not set (for local non-Docker runs)
-        input_base_dir = Path(os.environ.get('INPUT_DIR', 'data/input'))
+        self.chunk_size = chunk_size
+        
+        # Find H5 file and get subject ID
+        self.ieeg_processed, self.subject_id = find_h5_file(input_dir)
+        logger.info(f"Found H5 file for subject {self.subject_id} at: {self.ieeg_processed}")
+        
+        # Get output directory from environment variable or default
         output_base_dir = Path(os.environ.get('OUTPUT_DIR', 'data/output'))
-
-        # Construct full input path
-        self.ieeg_processed  = input_base_dir.joinpath('interictal_ieeg_processed.h5')
-        print(f"Attempting to load iEEG data from: {self.ieeg_processed}")
-
-        # Construct full output path and ensure it exists
         self.output_dir = output_base_dir.joinpath('univariate_features', self.subject_id)
-        self.output_dir.mkdir(parents=True, exist_ok=True)
-        print(f"Output directory set to: {self.output_dir}")
-
-        self.ieeg_processed_bipolar, self.coordinates, self.sampling_frequency = self.load_ieeg()
-        self.psd_df = compute_psd_all_channels_parallel(self.ieeg_processed_bipolar, self.sampling_frequency)
-
-    def load_ieeg(self):
+        logger.info(f"Output directory set to: {self.output_dir}")
+        
+        # Initialize data attributes
+        self._ieeg_processed_bipolar = None
+        self._coordinates = None
+        self._sampling_frequency = None
+        self._psd_df = None
+        
+        # Load data
+        self._load_data()
+    
+    @property
+    def ieeg_processed_bipolar(self) -> pd.DataFrame:
+        """Lazy loading of iEEG data"""
+        logger.debug("Accessing ieeg_processed_bipolar property")
+        if self._ieeg_processed_bipolar is None:
+            logger.info("iEEG data not loaded, loading now...")
+            self._load_data()
+        return self._ieeg_processed_bipolar
+    
+    @property
+    def coordinates(self) -> pd.DataFrame:
+        """Lazy loading of coordinates"""
+        logger.debug("Accessing coordinates property")
+        if self._coordinates is None:
+            logger.info("Coordinates not loaded, loading now...")
+            self._load_data()
+        return self._coordinates
+    
+    @property
+    def sampling_frequency(self) -> float:
+        """Lazy loading of sampling frequency"""
+        if self._sampling_frequency is None:
+            logger.info("Sampling frequency not loaded, loading now...")
+            self._load_data()
+        return self._sampling_frequency
+    
+    @property
+    def psd_df(self) -> pd.DataFrame:
+        """Lazy loading of PSD data"""
+        logger.debug("Accessing psd_df property")
+        if self._psd_df is None:
+            logger.info("PSD data not computed, computing now...")
+            self._psd_df = self._compute_psd()
+        return self._psd_df
+    
+    def _load_data(self) -> None:
+        """Load and initialize all data"""
+        logger.info("Starting data loading process...")
+        start_time = time.time()
+        
         if not self.ieeg_processed.exists():
-            raise FileNotFoundError(f"No iEEG processed file found for subject {self.subject_id}")
+            raise FileNotFoundError(f"No iEEG processed file found at {self.ieeg_processed}")
         
+        logger.info(f"Opening H5 file: {self.ieeg_processed}")
         with h5py.File(self.ieeg_processed, 'r') as f:
-                coordinates_data = f['/bipolar_montage/coordinates']
-                ieeg_data = f['/bipolar_montage/ieeg']
-                ieeg = pd.DataFrame(ieeg_data, columns=ieeg_data.attrs['channels_labels'])
-                sampling_frequency = ieeg_data.attrs['sampling_rate']
-                coordinates = pd.concat([
-                    pd.DataFrame(coordinates_data, columns=['x', 'y', 'z'], index=coordinates_data.attrs['labels']),
-                    pd.DataFrame(coordinates_data.attrs['original_labels'], columns=['orig_labels'], index=coordinates_data.attrs['labels']),
-                    pd.DataFrame(coordinates_data.attrs['roi'], columns=['roi'], index=coordinates_data.attrs['labels']),
-                    pd.DataFrame(coordinates_data.attrs['roiNum'], columns=['roiNum'], index=coordinates_data.attrs['labels']),
-                    pd.DataFrame(coordinates_data.attrs['spared'], columns=['spared'], index=coordinates_data.attrs['labels'])
-                ], axis=1)
+            logger.info("Loading coordinates data...")
+            coordinates_data = f['/bipolar_montage/coordinates']
+            logger.info("Loading iEEG data...")
+            ieeg_data = f['/bipolar_montage/ieeg']
+            
+            # Load data in chunks to save memory
+            logger.info(f"Loading iEEG data in chunks of size {self.chunk_size}...")
+            logger.info(f"Total data shape: {ieeg_data.shape}")
+            chunks = []
+            total_chunks = (ieeg_data.shape[0] + self.chunk_size - 1) // self.chunk_size
+            logger.info(f"Will process {total_chunks} chunks")
+            
+            for i in range(0, ieeg_data.shape[0], self.chunk_size):
+                chunk_num = i // self.chunk_size + 1
+                logger.info(f"Loading chunk {chunk_num}/{total_chunks}...")
+                chunk = ieeg_data[i:i + self.chunk_size]
+                logger.info(f"Chunk shape: {chunk.shape}")
+                chunks.append(pd.DataFrame(chunk, columns=ieeg_data.attrs['channels_labels']))
+            
+            logger.info("Concatenating chunks...")
+            self._ieeg_processed_bipolar = pd.concat(chunks, axis=0)
+            logger.info(f"Final DataFrame shape: {self._ieeg_processed_bipolar.shape}")
+            
+            self._sampling_frequency = ieeg_data.attrs['sampling_rate']
+            logger.info(f"Sampling frequency: {self._sampling_frequency} Hz")
+            
+            # Load coordinates data
+            logger.info("Processing coordinates data...")
+            logger.info(f"Available coordinate attributes: {list(coordinates_data.attrs.keys())}")
+            orig_labels = coordinates_data.attrs['original_labels'] if 'original_labels' in coordinates_data.attrs else None
+            self._coordinates = pd.concat([
+                pd.DataFrame(coordinates_data, columns=['x', 'y', 'z'], index=coordinates_data.attrs['labels']),
+                pd.DataFrame(orig_labels, columns=['orig_labels'], index=coordinates_data.attrs['labels']),
+                pd.DataFrame(coordinates_data.attrs['roi'], columns=['roi'], index=coordinates_data.attrs['labels']),
+                pd.DataFrame(coordinates_data.attrs['roiNum'], columns=['roiNum'], index=coordinates_data.attrs['labels']),
+                pd.DataFrame(coordinates_data.attrs['spared'], columns=['spared'], index=coordinates_data.attrs['labels'])
+            ], axis=1)
+            logger.info(f"Coordinates DataFrame shape: {self._coordinates.shape}")
         
-        return ieeg, coordinates, sampling_frequency
+        end_time = time.time()
+        logger.info(f"Data loading completed in {end_time - start_time:.2f} seconds")
+    
+    def _compute_psd(self) -> pd.DataFrame:
+        """Compute PSD for all channels in chunks"""
+        logger.info("Starting PSD computation...")
+        start_time = time.time()
         
-    def catch22_features(self):
-        channels = self.ieeg_processed_bipolar.columns
-        time_series_list = [self.ieeg_processed_bipolar[channel].values for channel in channels]
-
-        results = in_parallel(catch22_single_series, time_series_list, verbose=True)
-
-        feature_names = results[0]['names']
-        feature_values = np.array([result['values'] for result in results])
-        results_df = pd.DataFrame(feature_values, index=channels, columns=feature_names)
-
-        return results_df
-
-    def fooof_features(self):
-        channels = self.ieeg_processed_bipolar.columns
-        freqs = self.psd_df.index.values
-
-        inputs = [(freqs, self.psd_df[channel].values) for channel in channels]
-
-        results = in_parallel(fooof_single_series, inputs, verbose=True)
-
-        return pd.DataFrame(results, index=channels)
-
-    def bandpower_features(self):
+        logger.info(f"Input data shape: {self.ieeg_processed_bipolar.shape}")
+        result = compute_psd_all_channels_parallel(self.ieeg_processed_bipolar, self.sampling_frequency)
+        logger.info(f"PSD result shape: {result.shape}")
+        
+        end_time = time.time()
+        logger.info(f"PSD computation completed in {end_time - start_time:.2f} seconds")
+        return result
+    
+    def catch22_features(self) -> pd.DataFrame:
+        """Calculate Catch22 features for all channels."""
+        logger.info("Calculating Catch22 features...")
+        start_time = time.time()
+        
+        # Get data
+        data = self.ieeg_processed_bipolar
+        channels = data.columns
+        logger.info(f"Processing {len(channels)} channels...")
+        
+        # Process in smaller batches to avoid memory issues
+        batch_size = 5  # Process 5 channels at a time
+        results = []
+        
+        try:
+            for i in range(0, len(channels), batch_size):
+                batch_channels = channels[i:i + batch_size]
+                logger.info(f"Processing batch {i//batch_size + 1}/{(len(channels) + batch_size - 1)//batch_size}: channels {batch_channels[0]}-{batch_channels[-1]}")
+                
+                # Calculate features for this batch
+                batch_results = in_parallel(
+                    catch22_single_series,
+                    [data[col].values for col in batch_channels],
+                    n_jobs=min(2, len(batch_channels)),  # Limit to 2 parallel jobs
+                    verbose=True,
+                    timeout=60  # 1 minute timeout per batch
+                )
+                
+                # Convert results to DataFrame
+                feature_names = batch_results[0]['names']
+                feature_values = np.array([result['values'] for result in batch_results])
+                batch_df = pd.DataFrame(feature_values, index=batch_channels, columns=feature_names)
+                results.append(batch_df)
+                
+                logger.info(f"Completed batch {i//batch_size + 1}")
+                
+                # Save intermediate results
+                if len(results) > 0:
+                    temp_df = pd.concat(results)
+                    temp_path = self.output_dir / f"catch22_features_temp_{i//batch_size + 1}.csv"
+                    temp_df.to_csv(temp_path)
+                    logger.info(f"Saved intermediate results to {temp_path}")
+        
+        except KeyboardInterrupt:
+            logger.warning("Processing interrupted by user")
+            if len(results) > 0:
+                logger.info("Saving partial results...")
+                result_df = pd.concat(results)
+                result_df.to_csv(self.output_dir / "catch22_features_partial.csv")
+                logger.info("Partial results saved")
+            raise
+        
+        # Combine all results
+        result_df = pd.concat(results)
+        logger.info(f"Catch22 features calculated in {time.time() - start_time:.2f} seconds")
+        return result_df
+    
+    def bandpower_features(self) -> pd.DataFrame:
+        """Calculate bandpower features for all channels."""
+        logger.info("Calculating bandpower features...")
+        start_time = time.time()
+        
+        # Get PSD data
+        psd_df = self.psd_df
+        
+        # Define frequency bands
         bands = {
-            'delta': [1, 4],
-            'theta': [4, 8], 
-            'alpha': [8, 13],
-            'beta': [13, 30],
-            'gamma': [30, 100]
+            'delta': (0.5, 4),
+            'theta': (4, 8),
+            'alpha': (8, 13),
+            'beta': (13, 30),
+            'gamma': (30, 100)
         }
         
-        results = {}
-        freqs = self.psd_df.index.values
-        
+        # Calculate bandpower for each band
+        result_df = pd.DataFrame(index=psd_df.columns)
         for band_name, (low, high) in bands.items():
-            mask = (freqs >= low) & (freqs <= high)
-            results[band_name] = self.psd_df.loc[mask].mean()
-            
-        return pd.DataFrame(results)
-
-    def entropy_features(self):
-        def compute_entropy_for_channel(channel):
-            data = self.ieeg_processed_bipolar[channel].values
-            result = compute_entropy_single_series(data)
-            return (channel, result)
+            logger.info(f"Processing {band_name} band ({low}-{high} Hz)...")
+            mask = (psd_df.index >= low) & (psd_df.index <= high)
+            result_df[band_name] = psd_df.loc[mask].mean()
         
-        results = in_parallel(compute_entropy_for_channel, self.ieeg_processed_bipolar.columns, verbose=True)
-        # Convert list of tuples to a dictionary, then to a Pandas Series
-        entropy_dict = dict(results)
-        return pd.Series(entropy_dict, name='entropy')
+        logger.info(f"Bandpower features calculated in {time.time() - start_time:.2f} seconds")
+        return result_df
+    
+    def entropy_features(self) -> pd.Series:
+        """Calculate entropy features for all channels."""
+        logger.info("Calculating entropy features...")
+        start_time = time.time()
+        
+        # Get data
+        data = self.ieeg_processed_bipolar
+        
+        # Calculate entropy in parallel
+        results = in_parallel(compute_entropy_single_series, [data[col].values for col in data.columns])
+        
+        # Convert results to Series
+        entropy_series = pd.Series(results, index=data.columns, name='entropy')
+        
+        logger.info(f"Entropy features calculated in {time.time() - start_time:.2f} seconds")
+        return entropy_series
+    
+    def save_features(self, output_dir: Path) -> None:
+        """Save all calculated features to CSV files."""
+        logger.info(f"Saving features to {output_dir}")
 
+        # Create output directory if it doesn't exist
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Calculate features
+        bandpower_df = self.bandpower_features()
+        entropy_series = self.entropy_features()
+
+        # Save each feature set with subject_id in the filename
+        bandpower_df.to_csv(output_dir / f"bandpower_features_{self.subject_id}.csv")
+        entropy_df = entropy_series.to_frame()
+        entropy_df.to_csv(output_dir / f"entropy_features_{self.subject_id}.csv")
+        logger.info(f"Saved bandpower and entropy features for subject {self.subject_id}")
 
 #%%
 
 if __name__ == "__main__":
+    logger.info("Starting feature extraction process...")
+    start_time = time.time()
+    
     # Get base input directory from environment variable or default
     input_base_dir = Path(os.environ.get('INPUT_DIR', 'data/input'))
+    output_base_dir = Path(os.environ.get('OUTPUT_DIR', 'data/output'))
+    logger.info(f"Input directory: {input_base_dir}")
+    logger.info(f"Output directory: {output_base_dir}")
     
-    # Get all subject IDs
-    subject_ids = get_subject_ids(input_base_dir)
-    print(f"Found {len(subject_ids)} subjects: {subject_ids}")
-    
-    # Process each subject
-    for subject_id in subject_ids:
-        print(f"\nProcessing subject: {subject_id}")
-        features_calculator = UnivariateFeatures(subject_id)
-
-        # Define output paths
-        output_dir = features_calculator.output_dir
-
-        # Catch22 Features
-        print("Calculating Catch22 Features...")
-        catch22_df = features_calculator.catch22_features()
-        catch22_output_path = output_dir.joinpath(f"{subject_id}_catch22_features.csv")
-        catch22_df.to_csv(catch22_output_path)
-        print(f"Catch22 Features saved to: {catch22_output_path}")
+    try:
+        # Find and process the H5 file
+        logger.info("Initializing feature calculator...")
+        features_calculator = UnivariateFeatures(input_base_dir)
         
-        # FOOOF Features
-        print("\nCalculating FOOOF Features...")
-        fooof_df = features_calculator.fooof_features()
-        fooof_output_path = output_dir.joinpath(f"{subject_id}_fooof_features.csv")
-        fooof_df.to_csv(fooof_output_path)
-        print(f"FOOOF Features saved to: {fooof_output_path}")
+        # Calculate and save all features
+        logger.info("Starting feature calculation and saving...")
+        features_calculator.save_features(output_base_dir)
         
-        # Bandpower Features
-        print("\nCalculating Bandpower Features...")
-        bandpower_df = features_calculator.bandpower_features()
-        bandpower_output_path = output_dir.joinpath(f"{subject_id}_bandpower_features.csv")
-        bandpower_df.to_csv(bandpower_output_path)
-        print(f"Bandpower Features saved to: {bandpower_output_path}")
-
-        # Entropy Features
-        print("\nCalculating Entropy Features...")
-        entropy_series = features_calculator.entropy_features()
-        entropy_output_path = output_dir.joinpath(f"{subject_id}_entropy_features.csv")
-        entropy_series.to_csv(entropy_output_path)
-        print(f"Entropy Features saved to: {entropy_output_path}")
-
-        print(f"\nAll features calculated and saved for {subject_id}.")
+        end_time = time.time()
+        logger.info(f"All features calculated and saved for {features_calculator.subject_id}")
+        logger.info(f"Total processing time: {end_time - start_time:.2f} seconds")
+        
+    except Exception as e:
+        logger.error(f"Error processing data: {str(e)}", exc_info=True)
+        raise
