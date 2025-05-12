@@ -38,11 +38,9 @@ def find_h5_file(input_dir: Path) -> Tuple[Path, str]:
     
     # First check if input_dir is one of the files
     if input_dir.is_file() and input_dir.name in possible_filenames:
-        logger.info(f"Found H5 file directly: {input_dir}")
         h5_file = input_dir
     else:
         # Search recursively for any of the possible files
-        logger.info("Searching recursively for H5 files...")
         h5_files = []
         for filename in possible_filenames:
             found_files = list(input_dir.rglob(filename))
@@ -54,7 +52,6 @@ def find_h5_file(input_dir: Path) -> Tuple[Path, str]:
         
         if not h5_files:
             # If no files found, try searching in subdirectories
-            logger.info("No H5 files found, checking subdirectories...")
             for subdir in input_dir.iterdir():
                 if subdir.is_dir():
                     logger.info(f"Checking subdirectory: {subdir}")
