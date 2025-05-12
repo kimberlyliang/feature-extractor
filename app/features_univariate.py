@@ -10,6 +10,19 @@ from features_univariate_utils import in_parallel, catch22_single_series, comput
 from fooof import FOOOF
 import time
 
+def get_subject_ids(input_dir: Path) -> list:
+    """Get list of subject IDs from the input directory.
+    
+    Args:
+        input_dir (Path): Path to the input directory
+        
+    Returns:
+        list: List of subject IDs (e.g., ['sub-MNI0001', 'sub-MNI0002'])
+    """
+    # Get all directories that start with 'sub-'
+    subject_dirs = [d for d in input_dir.iterdir() if d.is_dir() and d.name.startswith('sub-')]
+    return [d.name for d in subject_dirs]
+
 #%%
 class UnivariateFeatures(IEEGClipProcessor):
     def __init__(self, subject_id: str):
@@ -109,38 +122,47 @@ class UnivariateFeatures(IEEGClipProcessor):
 #%%
 
 if __name__ == "__main__":
-    subject_id = "sub-RID0031"
-    features_calculator = UnivariateFeatures(subject_id)
-
-    # Define output paths
-    output_dir = features_calculator.output_dir
-
-    # Catch22 Features
-    print("Calculating Catch22 Features...")
-    catch22_df = features_calculator.catch22_features()
-    catch22_output_path = output_dir.joinpath(f"{subject_id}_catch22_features.csv")
-    catch22_df.to_csv(catch22_output_path)
-    print(f"Catch22 Features saved to: {catch22_output_path}")
+    # Get base input directory from environment variable or default
+    input_base_dir = Path(os.environ.get('INPUT_DIR', 'data/input'))
     
-    # FOOOF Features
-    print("\nCalculating FOOOF Features...")
-    fooof_df = features_calculator.fooof_features()
-    fooof_output_path = output_dir.joinpath(f"{subject_id}_fooof_features.csv")
-    fooof_df.to_csv(fooof_output_path)
-    print(f"FOOOF Features saved to: {fooof_output_path}")
+    # Get all subject IDs
+    subject_ids = get_subject_ids(input_base_dir)
+    print(f"Found {len(subject_ids)} subjects: {subject_ids}")
     
-    # Bandpower Features
-    print("\nCalculating Bandpower Features...")
-    bandpower_df = features_calculator.bandpower_features()
-    bandpower_output_path = output_dir.joinpath(f"{subject_id}_bandpower_features.csv")
-    bandpower_df.to_csv(bandpower_output_path)
-    print(f"Bandpower Features saved to: {bandpower_output_path}")
+    # Process each subject
+    for subject_id in subject_ids:
+        print(f"\nProcessing subject: {subject_id}")
+        features_calculator = UnivariateFeatures(subject_id)
 
-    # Entropy Features
-    print("\nCalculating Entropy Features...")
-    entropy_series = features_calculator.entropy_features()
-    entropy_output_path = output_dir.joinpath(f"{subject_id}_entropy_features.csv")
-    entropy_series.to_csv(entropy_output_path)
-    print(f"Entropy Features saved to: {entropy_output_path}")
+        # Define output paths
+        output_dir = features_calculator.output_dir
 
-    print("\nAll features calculated and saved.")
+        # Catch22 Features
+        print("Calculating Catch22 Features...")
+        catch22_df = features_calculator.catch22_features()
+        catch22_output_path = output_dir.joinpath(f"{subject_id}_catch22_features.csv")
+        catch22_df.to_csv(catch22_output_path)
+        print(f"Catch22 Features saved to: {catch22_output_path}")
+        
+        # FOOOF Features
+        print("\nCalculating FOOOF Features...")
+        fooof_df = features_calculator.fooof_features()
+        fooof_output_path = output_dir.joinpath(f"{subject_id}_fooof_features.csv")
+        fooof_df.to_csv(fooof_output_path)
+        print(f"FOOOF Features saved to: {fooof_output_path}")
+        
+        # Bandpower Features
+        print("\nCalculating Bandpower Features...")
+        bandpower_df = features_calculator.bandpower_features()
+        bandpower_output_path = output_dir.joinpath(f"{subject_id}_bandpower_features.csv")
+        bandpower_df.to_csv(bandpower_output_path)
+        print(f"Bandpower Features saved to: {bandpower_output_path}")
+
+        # Entropy Features
+        print("\nCalculating Entropy Features...")
+        entropy_series = features_calculator.entropy_features()
+        entropy_output_path = output_dir.joinpath(f"{subject_id}_entropy_features.csv")
+        entropy_series.to_csv(entropy_output_path)
+        print(f"Entropy Features saved to: {entropy_output_path}")
+
+        print(f"\nAll features calculated and saved for {subject_id}.")
