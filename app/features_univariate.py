@@ -252,20 +252,13 @@ class UnivariateFeatures(IEEGClipProcessor):
                 results.append(batch_df)
                 
                 logger.info(f"Completed batch {i//batch_size + 1}")
-                
-                # Save intermediate results
-                if len(results) > 0:
-                    temp_df = pd.concat(results)
-                    temp_path = self.output_dir / f"catch22_features_temp_{i//batch_size + 1}.csv"
-                    temp_df.to_csv(temp_path)
-                    logger.info(f"Saved intermediate results to {temp_path}")
         
         except KeyboardInterrupt:
             logger.warning("Processing interrupted by user")
             if len(results) > 0:
                 logger.info("Saving partial results...")
                 result_df = pd.concat(results)
-                result_df.to_csv(self.output_dir / "catch22_features_partial.csv")
+                result_df.to_csv(self.output_dir / f"{self.subject_id}_catch22_features_partial.csv")
                 logger.info("Partial results saved")
             raise
         
@@ -325,12 +318,19 @@ class UnivariateFeatures(IEEGClipProcessor):
         # Calculate features
         bandpower_df = self.bandpower_features()
         entropy_series = self.entropy_features()
+        catch22_df = self.catch22_features()
         
-        # Save each feature set in the same directory as the input file
-        bandpower_df.to_csv(self.output_dir / "bandpower_features.csv")
+        # Create output filenames with subject ID
+        bandpower_filename = f"{self.subject_id}_bandpower_features.csv"
+        entropy_filename = f"{self.subject_id}_entropy_features.csv"
+        catch22_filename = f"{self.subject_id}_catch22_features.csv"
+        
+        # Save each feature set with subject ID in filename
+        bandpower_df.to_csv(self.output_dir / bandpower_filename)
         entropy_df = entropy_series.to_frame()
-        entropy_df.to_csv(self.output_dir / "entropy_features.csv")
-        logger.info(f"Saved bandpower and entropy features in {self.output_dir}")
+        entropy_df.to_csv(self.output_dir / entropy_filename)
+        catch22_df.to_csv(self.output_dir / catch22_filename)
+        logger.info(f"Saved bandpower, entropy, and Catch22 features for {self.subject_id} in {self.output_dir}")
 
 #%%
 
@@ -345,18 +345,42 @@ if __name__ == "__main__":
     logger.info(f"Output directory: {output_base_dir}")
     
     try:
-        # Find and process the H5 file
-        logger.info("Initializing feature calculator...")
-        features_calculator = UnivariateFeatures(input_base_dir)
+        # Find all H5 files in the input directory
+        possible_filenames = ['interictal_ieeg_processed.h5', 'interictal_ieeg_wake_processed.h5']
+        h5_files = []
         
-        # Calculate and save all features
-        logger.info("Starting feature calculation and saving...")
-        features_calculator.save_features()
+        # Search for all H5 files
+        for filename in possible_filenames:
+            found_files = list(input_base_dir.rglob(filename))
+            if found_files:
+                logger.info(f"Found {len(found_files)} files matching {filename}")
+                h5_files.extend(found_files)
+        
+        if not h5_files:
+            raise FileNotFoundError(f"No H5 files found in {input_base_dir} or its subdirectories")
+        
+        logger.info(f"Found {len(h5_files)} H5 files to process")
+        
+        # Process each H5 file
+        for h5_file in h5_files:
+            logger.info(f"\nProcessing file: {h5_file}")
+            try:
+                # Initialize feature calculator for this file
+                features_calculator = UnivariateFeatures(h5_file)
+                
+                # Calculate and save features
+                logger.info(f"Starting feature calculation and saving for {features_calculator.subject_id}...")
+                features_calculator.save_features()
+                
+                logger.info(f"Completed processing for {features_calculator.subject_id}")
+            except Exception as e:
+                logger.error(f"Error processing {h5_file}: {str(e)}", exc_info=True)
+                logger.info("Continuing with next file...")
+                continue
         
         end_time = time.time()
-        logger.info(f"All features calculated and saved for {features_calculator.subject_id}")
-        logger.info(f"Total processing time: {end_time - start_time:.2f} seconds")
+        logger.info(f"\nAll files processed. Total processing time: {end_time - start_time:.2f} seconds")
         
     except Exception as e:
-        logger.error(f"Error processing data: {str(e)}", exc_info=True)
+        logger.error(f"Error in main process: {str(e)}", exc_info=True)
         raise
