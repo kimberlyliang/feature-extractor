@@ -104,7 +104,8 @@ class UnivariateFeatures(IEEGClipProcessor):
         logger.info(f"Found H5 file for subject {self.subject_id} at: {self.ieeg_processed}")
         
         # Set output directory to be the same as the input file's directory
-        self.output_dir = self.ieeg_processed.parent
+        # self.output_dir = self.ieeg_processed.parent
+        self.output_dir = output_base_dir
         logger.info(f"Output directory set to: {self.output_dir}")
         
         # Initialize data attributes
