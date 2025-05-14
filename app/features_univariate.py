@@ -22,23 +22,23 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def find_h5_file(input_dir: Path) -> Tuple[Path, str]:
-    """Find the H5 file in the input directory and extract subject ID.
+def find_h5_files(input_dir: Path) -> List[Tuple[Path, str]]:
+    """Find all H5 files in the input directory and extract subject IDs.
     
     Args:
         input_dir: Path to input directory or file
         
     Returns:
-        Tuple of (h5_file_path, subject_id)
+        List of tuples containing (h5_file_path, subject_id)
     """
-    logger.info(f"Searching for H5 file in: {input_dir}")
+    logger.info(f"Searching for H5 files in: {input_dir}")
     
     # Define possible filenames
     possible_filenames = ['interictal_ieeg_processed.h5', 'interictal_ieeg_wake_processed.h5']
     
     # First check if input_dir is one of the files
     if input_dir.is_file() and input_dir.name in possible_filenames:
-        h5_file = input_dir
+        h5_files = [input_dir]
     else:
         # Search recursively for any of the possible files
         h5_files = []
@@ -60,37 +60,31 @@ def find_h5_file(input_dir: Path) -> Tuple[Path, str]:
                         if found_files:
                             logger.info(f"Found {len(found_files)} files matching {filename} in {subdir}")
                             h5_files.extend(found_files)
-                            break
-                    if h5_files:
-                        break
             
             if not h5_files:
                 raise FileNotFoundError(f"No H5 files found in {input_dir} or its subdirectories")
-        
-        if len(h5_files) > 1:
-            logger.warning(f"Found multiple H5 files: {h5_files}")
-            logger.info("Using the first file found")
-        
-        h5_file = h5_files[0]
-        logger.info(f"Using file: {h5_file}")
     
-    # Extract subject ID from path
-    try:
-        # Try to find sub-* pattern in the path
-        subject_match = re.search(r'sub-[A-Za-z0-9]+', str(h5_file))
-        if subject_match:
-            subject_id = subject_match.group(0)
-            logger.info(f"Extracted subject ID from path: {subject_id}")
-        else:
-            # Use parent directory name as fallback
+    # Extract subject IDs for all files
+    result = []
+    for h5_file in h5_files:
+        try:
+            # Try to find sub-* pattern in the path
+            subject_match = re.search(r'sub-[A-Za-z0-9]+', str(h5_file))
+            if subject_match:
+                subject_id = subject_match.group(0)
+                logger.info(f"Extracted subject ID from path: {subject_id}")
+            else:
+                # Use parent directory name as fallback
+                subject_id = h5_file.parent.name
+                logger.info(f"No subject ID found in path, using parent directory name: {subject_id}")
+        except Exception as e:
+            logger.warning(f"Error extracting subject ID: {e}")
             subject_id = h5_file.parent.name
-            logger.info(f"No subject ID found in path, using parent directory name: {subject_id}")
-    except Exception as e:
-        logger.warning(f"Error extracting subject ID: {e}")
-        subject_id = h5_file.parent.name
+        
+        logger.info(f"Final subject ID for {h5_file}: {subject_id}")
+        result.append((h5_file, subject_id))
     
-    logger.info(f"Final subject ID: {subject_id}")
-    return h5_file, subject_id
+    return result
 
 #%%
 class UnivariateFeatures(IEEGClipProcessor):
@@ -100,7 +94,12 @@ class UnivariateFeatures(IEEGClipProcessor):
         self.chunk_size = chunk_size
         
         # Find H5 file and get subject ID
-        self.ieeg_processed, self.subject_id = find_h5_file(input_dir)
+        h5_files = find_h5_files(input_dir)
+        if not h5_files:
+            raise FileNotFoundError(f"No H5 files found in {input_dir}")
+        
+        # Use the first file for this instance
+        self.ieeg_processed, self.subject_id = h5_files[0]
         logger.info(f"Found H5 file for subject {self.subject_id} at: {self.ieeg_processed}")
         
         # Set output directory to be the same as the input file's directory
@@ -343,44 +342,37 @@ if __name__ == "__main__":
     output_base_dir = Path(os.environ.get('OUTPUT_DIR', 'data/output'))
     logger.info(f"Input directory: {input_base_dir}")
     logger.info(f"Output directory: {output_base_dir}")
+    logger.info(os.listdir(input_base_dir))
     
-    try:
-        # Find all H5 files in the input directory
-        possible_filenames = ['interictal_ieeg_processed.h5', 'interictal_ieeg_wake_processed.h5']
-        h5_files = []
+    # try:
+    #     # Find all H5 files in the input directory
+    #     h5_files = find_h5_files(input_base_dir)
         
-        # Search for all H5 files
-        for filename in possible_filenames:
-            found_files = list(input_base_dir.rglob(filename))
-            if found_files:
-                logger.info(f"Found {len(found_files)} files matching {filename}")
-                h5_files.extend(found_files)
+    #     if not h5_files:
+    #         raise FileNotFoundError(f"No H5 files found in {input_base_dir} or its subdirectories")
         
-        if not h5_files:
-            raise FileNotFoundError(f"No H5 files found in {input_base_dir} or its subdirectories")
+    #     logger.info(f"Found {len(h5_files)} H5 files to process")
         
-        logger.info(f"Found {len(h5_files)} H5 files to process")
-        
-        # Process each H5 file
-        for h5_file in h5_files:
-            logger.info(f"\nProcessing file: {h5_file}")
-            try:
-                # Initialize feature calculator for this file
-                features_calculator = UnivariateFeatures(h5_file)
+    #     # Process each H5 file
+    #     for h5_file, subject_id in h5_files:
+    #         logger.info(f"\nProcessing file: {h5_file}")
+    #         try:
+    #             # Initialize feature calculator for this file
+    #             features_calculator = UnivariateFeatures(h5_file)
                 
-                # Calculate and save features
-                logger.info(f"Starting feature calculation and saving for {features_calculator.subject_id}...")
-                features_calculator.save_features()
+    #             # Calculate and save features
+    #             logger.info(f"Starting feature calculation and saving for {subject_id}...")
+    #             features_calculator.save_features()
                 
-                logger.info(f"Completed processing for {features_calculator.subject_id}")
-            except Exception as e:
-                logger.error(f"Error processing {h5_file}: {str(e)}", exc_info=True)
-                logger.info("Continuing with next file...")
-                continue
+    #             logger.info(f"Completed processing for {subject_id}")
+    #         except Exception as e:
+    #             logger.error(f"Error processing {h5_file}: {str(e)}", exc_info=True)
+    #             logger.info("Continuing with next file...")
+    #             continue
         
-        end_time = time.time()
-        logger.info(f"\nAll files processed. Total processing time: {end_time - start_time:.2f} seconds")
+    #     end_time = time.time()
+    #     logger.info(f"\nAll files processed. Total processing time: {end_time - start_time:.2f} seconds")
         
-    except Exception as e:
-        logger.error(f"Error in main process: {str(e)}", exc_info=True)
-        raise
+    # except Exception as e:
+    #     logger.error(f"Error in main process: {str(e)}", exc_info=True)
+    #     raise
